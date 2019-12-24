@@ -54,7 +54,7 @@ Let's set up separate tidy data frames for title, description, and keyword, keep
 ```{r title, dependson = "download", message=FALSE}
 library(dplyr)
 
-nasa_title <- data_frame(id = metadata$dataset$`_id`$`$oid`, 
+nasa_title <- tibble(id = metadata$dataset$`_id`$`$oid`, 
                          title = metadata$dataset$title)
 nasa_title
 ```
@@ -62,7 +62,7 @@ nasa_title
 These are just a few example titles from the datasets we will be exploring. Notice that we have the NASA-assigned ids here, and also that there are duplicate titles on separate datasets.
 
 ```{r desc, dependson = "download", dplyr.width = 150}
-nasa_desc <- data_frame(id = metadata$dataset$`_id`$`$oid`, 
+nasa_desc <- tibble(id = metadata$dataset$`_id`$`$oid`, 
                         desc = metadata$dataset$description)
 
 nasa_desc %>% 
@@ -77,7 +77,7 @@ Now we can build the tidy data frame for the keywords. For this one, we need to 
 ```{r keyword, dependson = "download"}
 library(tidyr)
 
-nasa_keyword <- data_frame(id = metadata$dataset$`_id`$`$oid`, 
+nasa_keyword <- tibble(id = metadata$dataset$`_id`$`$oid`, 
                            keyword = metadata$dataset$keyword) %>%
   unnest(keyword)
 
@@ -131,7 +131,7 @@ We can do this by making a list of custom stop words and using `anti_join()` to 
 ```
 
 ```{r my_stopwords, dependson = "unnest"}
-my_stopwords <- data_frame(word = c(as.character(1:10), 
+my_stopwords <- tibble(word = c(as.character(1:10), 
                                     "v1", "v03", "l2", "l3", "l4", "v5.2.0", 
                                     "v003", "v004", "v005", "v006", "v7"))
 nasa_title <- nasa_title %>% 
@@ -181,7 +181,7 @@ desc_word_pairs <- nasa_desc %>%
 desc_word_pairs
 ```
 
-These are the pairs of words that occur together most often in descripton fields. "Data" is a very common word in description fields; there is no shortage of data in the datasets at NASA!
+These are the pairs of words that occur together most often in description fields. "Data" is a very common word in description fields; there is no shortage of data in the datasets at NASA!
 
 Let's plot networks of these co-occurring words so we can see these relationships better in Figure \@ref(fig:plottitle). We will again use the ggraph package for visualizing our networks.
 
@@ -355,7 +355,7 @@ Let’s clean up the text a bit using stop words to remove some of the nonsense 
 
 ```{r word_counts, dependson = "my_stopwords"}
 my_stop_words <- bind_rows(stop_words, 
-                           data_frame(word = c("nbsp", "amp", "gt", "lt",
+                           tibble(word = c("nbsp", "amp", "gt", "lt",
                                                "timesnewromanpsmt", "font",
                                                "td", "li", "br", "tr", "quot",
                                                "st", "img", "src", "strong",
@@ -430,16 +430,14 @@ It is not very easy to interpret what the topics are about from a data frame lik
 
 ```{r plotbeta, dependson = "top_terms", fig.width=12, fig.height=16, fig.cap="Top terms in topic modeling of NASA metadata description field texts"}
 top_terms %>%
-  mutate(term = reorder(term, beta)) %>%
+  mutate(term = reorder_within(term, beta, topic)) %>%
   group_by(topic, term) %>%    
   arrange(desc(beta)) %>%  
   ungroup() %>%
-  mutate(term = factor(paste(term, topic, sep = "__"), 
-                       levels = rev(paste(term, topic, sep = "__")))) %>%
   ggplot(aes(term, beta, fill = as.factor(topic))) +
   geom_col(show.legend = FALSE) +
   coord_flip() +
-  scale_x_discrete(labels = function(x) gsub("__.+$", "", x)) +
+  scale_x_reordered() +
   labs(title = "Top 10 terms in each LDA topic",
        x = NULL, y = expression(beta)) +
   facet_wrap(~ topic, ncol = 4, scales = "free")
@@ -455,7 +453,7 @@ lda_gamma <- tidy(desc_lda, matrix = "gamma")
 lda_gamma
 ```
 
-Notice that some of the probabilites visible at the top of the data frame are low and some are higher. Our model has assigned a probability to each description belonging to each of the topics we constructed from the sets of words. How are the probabilities distributed? Let's visualize them (Figure \@ref(fig:plotgammaall)).
+Notice that some of the probabilities visible at the top of the data frame are low and some are higher. Our model has assigned a probability to each description belonging to each of the topics we constructed from the sets of words. How are the probabilities distributed? Let's visualize them (Figure \@ref(fig:plotgammaall)).
 
 ```{r plotgammaall, dependson = "lda_gamma", fig.width=7, fig.height=5, fig.cap="Probability distribution in topic modeling of NASA metadata description field texts"}
 ggplot(lda_gamma, aes(gamma)) +
@@ -506,17 +504,14 @@ What are the top keywords for each topic?
 top_keywords %>%
   group_by(topic) %>%
   top_n(5, n) %>%
-  group_by(topic, keyword) %>%
-  arrange(desc(n)) %>%  
-  ungroup() %>%
-  mutate(keyword = factor(paste(keyword, topic, sep = "__"), 
-                          levels = rev(paste(keyword, topic, sep = "__")))) %>%
+  ungroup %>%
+  mutate(keyword = reorder_within(keyword, n, topic)) %>%
   ggplot(aes(keyword, n, fill = as.factor(topic))) +
   geom_col(show.legend = FALSE) +
   labs(title = "Top keywords for each LDA topic",
        x = NULL, y = "Number of documents") +
   coord_flip() +
-  scale_x_discrete(labels = function(x) gsub("__.+$", "", x)) +
+  scale_x_reordered() +
   facet_wrap(~ topic, ncol = 4, scales = "free")
 ```
 

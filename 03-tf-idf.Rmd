@@ -33,8 +33,7 @@ library(tidytext)
 
 book_words <- austen_books() %>%
   unnest_tokens(word, text) %>%
-  count(book, word, sort = TRUE) %>%
-  ungroup()
+  count(book, word, sort = TRUE)
 
 total_words <- book_words %>% 
   group_by(book) %>% 
@@ -56,7 +55,7 @@ ggplot(book_words, aes(n/total, fill = book)) +
   facet_wrap(~book, ncol = 2, scales = "free_y")
 ```
 
-There are very long tails to the right for these novels (those extremely common words!) that we have not shown in these plots. These plots exhibit similar distributions for all the novels, with many words that occur rarely and fewer words that occur frequently.
+There are very long tails to the right for these novels (those extremely rare words!) that we have not shown in these plots. These plots exhibit similar distributions for all the novels, with many words that occur rarely and fewer words that occur frequently.
 
 ## Zipf's law
 
@@ -122,6 +121,7 @@ The `bind_tf_idf` function in the tidytext package takes a tidy text dataset as 
 ```{r tf_idf, dependson = "book_words"}
 book_words <- book_words %>%
   bind_tf_idf(word, book, n)
+
 book_words
 ```
 
@@ -149,7 +149,7 @@ book_words %>%
   mutate(word = factor(word, levels = rev(unique(word)))) %>% 
   group_by(book) %>% 
   top_n(15) %>% 
-  ungroup %>%
+  ungroup() %>%
   ggplot(aes(word, tf_idf, fill = book)) +
   geom_col(show.legend = FALSE) +
   labs(x = NULL, y = "tf-idf") +
@@ -167,7 +167,7 @@ This is a pretty diverse bunch. They may all be physics classics, but they were 
 
 ```{r eval = FALSE}
 library(gutenbergr)
-physics <- gutenberg_download(c(37729, 14725, 13476, 5001), 
+physics <- gutenberg_download(c(37729, 14725, 13476, 30155), 
                               meta_fields = "author")
 ```
 
@@ -180,8 +180,7 @@ Now that we have the texts, let's use `unnest_tokens()` and `count()` to find ou
 ```{r physics_words, dependson = "physics"}
 physics_words <- physics %>%
   unnest_tokens(word, text) %>%
-  count(author, word, sort = TRUE) %>%
-  ungroup()
+  count(author, word, sort = TRUE)
 
 physics_words
 ```
@@ -189,10 +188,11 @@ physics_words
 Here we see just the raw counts; we need to remember that these documents are all different lengths. Let's go ahead and calculate tf-idf, then visualize the high tf-idf words in Figure \@ref(fig:physicsseparate).
 
 ```{r physicsseparate, dependson = "plot_physics", fig.height=7, fig.width=8, fig.cap="Highest tf-idf words in each physics texts"}
+library(forcats)
+
 plot_physics <- physics_words %>%
   bind_tf_idf(word, author, n) %>%
-  arrange(desc(tf_idf)) %>%
-  mutate(word = factor(word, levels = rev(unique(word)))) %>%
+  mutate(word = fct_reorder(word, tf_idf)) %>%
   mutate(author = factor(author, levels = c("Galilei, Galileo",
                                             "Huygens, Christiaan", 
                                             "Tesla, Nikola",
@@ -210,47 +210,43 @@ plot_physics %>%
   coord_flip()
 ```
 
-Very interesting indeed. One thing we see here is "eq" in the Einstein text?!
+Very interesting indeed. One thing we see here is "_k_" in the Einstein text?!
 
 ```{r dependson = "physics"}
 library(stringr)
 
 physics %>% 
-  filter(str_detect(text, "eq\\.")) %>% 
+  filter(str_detect(text, "_k_")) %>% 
   select(text)
 ```
 
-Some cleaning up of the text may be in order. "K1" is the name of a coordinate system for Einstein:
-
-```{r dependson = "physics"}
-physics %>% 
-  filter(str_detect(text, "K1")) %>% 
-  select(text)
-```
-
-Maybe it makes sense to keep this one. Also notice that in this line we have "co-ordinate", which explains why there are separate "co" and "ordinate" items in the high tf-idf words for the Einstein text; the `unnest_tokens()` function separates around punctuation. Notice that the tf-idf scores for "co" and "ordinate" are close to same!
+Some cleaning up of the text may be in order. Also notice that there are separate "co" and "ordinate" items in the high tf-idf words for the Einstein text; the `unnest_tokens()` function separates around punctuation like hyphens by default. Notice that the tf-idf scores for "co" and "ordinate" are close to same!
 
 "AB", "RC", and so forth are names of rays, circles, angles, and so forth for Huygens.
 
 ```{r dependson = "physics"}
 physics %>% 
-  filter(str_detect(text, "AK")) %>% 
+  filter(str_detect(text, "RC")) %>% 
   select(text)
 ```
 
 Let's remove some of these less meaningful words to make a better, more meaningful plot. Notice that we make a custom list of stop words and use `anti_join()` to remove them; this is a flexible approach that can be used in many situations. We will need to go back a few steps since we are removing words from the tidy data frame.
 
 ```{r mystopwords, dependson = "plot_physics", fig.height=7, fig.width=8, fig.cap="Highest tf-idf words in classic physics texts"}
-mystopwords <- data_frame(word = c("eq", "co", "rc", "ac", "ak", "bn", 
-                                   "fig", "file", "cg", "cb", "cm"))
-physics_words <- anti_join(physics_words, mystopwords, by = "word")
+mystopwords <- tibble(word = c("eq", "co", "rc", "ac", "ak", "bn", 
+                                   "fig", "file", "cg", "cb", "cm",
+                               "ab", "_k", "_k_", "_x"))
+
+physics_words <- anti_join(physics_words, mystopwords, 
+                           by = "word")
+
 plot_physics <- physics_words %>%
   bind_tf_idf(word, author, n) %>%
-  arrange(desc(tf_idf)) %>%
-  mutate(word = factor(word, levels = rev(unique(word)))) %>%
+  mutate(word = str_remove_all(word, "_")) %>%
   group_by(author) %>% 
   top_n(15, tf_idf) %>%
-  ungroup %>%
+  ungroup() %>%
+  mutate(word = reorder_within(word, tf_idf, author)) %>%
   mutate(author = factor(author, levels = c("Galilei, Galileo",
                                             "Huygens, Christiaan",
                                             "Tesla, Nikola",
@@ -260,7 +256,8 @@ ggplot(plot_physics, aes(word, tf_idf, fill = author)) +
   geom_col(show.legend = FALSE) +
   labs(x = NULL, y = "tf-idf") +
   facet_wrap(~author, ncol = 2, scales = "free") +
-  coord_flip()
+  coord_flip() +
+  scale_x_reordered()
 ```
 
 One thing we can conclude from Figure \@ref(fig:mystopwords) is that we don't hear enough about ramparts or things being ethereal in physics today.
